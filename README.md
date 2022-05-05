@@ -71,6 +71,23 @@ Also you can check the information about the schema
 python get_schema_version_details.py
 ```
 
+### Run sample
+Make sure you have installed go correctly on your machine. For the sample we won't need to create an executable.
+
+```bash
+cd producer
+```
+
+Make sure you have all dependencies correctly before running
+```bash
+go mod tidy
+```
+
+Run the code
+```bash
+go run .
+```
+
 ## clean up
 
 ```bash
