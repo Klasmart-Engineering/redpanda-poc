@@ -88,6 +88,26 @@ Run the code
 go run .
 ```
 
+## Run sample consumer with schema
+Make sure you have followed the steps for the sample producer
+
+### Run sample
+Make sure you have installed go correctly on your machine. For the sample we won't need to create an executable.
+
+```bash
+cd consumer
+```
+
+Make sure you have all dependencies correctly before running
+```bash
+go mod tidy
+```
+
+Run the code
+```bash
+go run .
+```
+
 ## clean up
 
 ```bash
