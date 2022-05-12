@@ -6,7 +6,9 @@ networks:
       config:
       - subnet: '172.24.1.0/24'
         gateway: '172.24.1.1'
+
 volumes:
+  prometheus_data: {}
   redpanda1:
     external: true
   redpanda2:
@@ -142,3 +144,25 @@ services:
       - redpanda3:/var/lib/redpanda/data
     depends_on:
       - 'redpanda1'
+
+  prometheus:
+    image: 'prom/prometheus:latest'
+    container_name: prometheus
+    volumes:
+      - ./prometheus/:/etc/prometheus/
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    expose:
+      - "9090"
+    ports:
+      - "9090:9090"
+    depends_on:
+      - 'redpanda1'
+      - 'redpanda2'
+      - 'redpanda3'
+    networks:
+        - redpanda_network
