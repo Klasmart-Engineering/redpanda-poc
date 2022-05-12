@@ -128,9 +128,11 @@ docker volume rm redpanda3
 
 1. Issue with librdkafka
 If you have M1 Mac and you face this issue, please do the following steps:
+
 ```bash
-    brew install librdkafka 
+brew install librdkafka 
 ```
+
 Probably you will need to install some other libraries as well depending on the messsages that you will get
 
 When you run the producer and the consumer, run the following command to make confluent-kafka-go link librdkafka dynamically:
@@ -139,4 +141,5 @@ go run -tags dynamic .
 ```
 
 2. Issue with consumer reading from a topic with messages different from the default schema
+
 Make sure that you haven't written anything to the topic before which doesn't correspond to the correct schema given from the schema registry. If you have done this, please cleanup the redpanda cluster and the topic and restart them again. 
