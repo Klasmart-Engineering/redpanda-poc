@@ -1,29 +1,75 @@
 package main
 
 import (
-  "encoding/binary"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
-  "strconv"
 	"io/ioutil"
+	"os"
+	"strconv"
+	"time"
 
-  "github.com/google/uuid"
-	"github.com/riferrei/srclient"
+	newrelic "github.com/newrelic/go-agent"
+
 	"github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/google/uuid"
+	"github.com/riferrei/srclient"
 )
 
 type ComplexType struct {
-	ID   string  `json:"ID"`
+	ID    string `json:"ID"`
 	Value string `json:"Value"`
+}
+
+func mustGetEnv(key string) string {
+	if val := os.Getenv(key); "" != val {
+		return val
+	}
+	panic(fmt.Sprintf("environment variable %s unset", key))
+}
+
+const producerCount = 2
+
+var (
+	app   newrelic.Application
+	topic = "test"
+	msg   = []string{"Welcome", "to", "the", "Confluent", "Kafka", "Golang", "client"}
+)
+
+func InitNewRelicApp(name string, licenseKey string) newrelic.Application {
+	cfg := newrelic.NewConfig(name, licenseKey)
+	cfg.Enabled = true
+
+	app, err := newrelic.NewApplication(cfg)
+
+	if nil != err {
+		panic(err)
+	}
+	return app
+}
+
+func init() {
+	app = InitNewRelicApp("redpanda-poc", mustGetEnv("NEW_RELIC_LICENSE_KEY"))
+	if err := app.WaitForConnection(5 * time.Second); nil != err {
+		panic(err)
+	}
 }
 
 func main() {
 
-	p, err := kafka.NewProducer(&kafka.ConfigMap{"bootstrap.servers": "localhost:9092"})
+	for producerId := 0; producerId < producerCount; producerId++ {
+		produce(producerId)
+	}
+	app.Shutdown(10 * time.Second)
+}
+
+func produce(producerId int) {
+
+	p, err := kafka.NewProducer(&kafka.ConfigMap{"bootstrap.servers": "localhost:19092"})
 	if err != nil {
 		panic(err)
 	}
-  defer p.Close()
+	defer p.Close()
 
 	// Delivery report handler for produced messages
 	go func() {
@@ -39,12 +85,9 @@ func main() {
 		}
 	}()
 
-	// Produce messages to topic (asynchronously)
-	topic := "test"
-
-  schemaRegistryClient := srclient.CreateSchemaRegistryClient("http://localhost:8081")
+	schemaRegistryClient := srclient.CreateSchemaRegistryClient("http://localhost:18081")
 	schema, err := schemaRegistryClient.GetLatestSchema(topic)
-  fmt.Printf("Producer schema: %v\n", schema)
+	fmt.Printf("Producer schema: %v\n", schema)
 	if schema == nil {
 		schemaBytes, _ := ioutil.ReadFile("complexType.avsc")
 		schema, err = schemaRegistryClient.CreateSchema(topic, string(schemaBytes), srclient.Avro)
@@ -53,34 +96,40 @@ func main() {
 		}
 	}
 	schemaIDBytes := make([]byte, 4)
-  fmt.Printf("Producer schema id: %v\n", schema.ID)
+	fmt.Printf("Producer schema id: %v\n", schema.ID)
 	binary.BigEndian.PutUint32(schemaIDBytes, uint32(schema.ID()))
 
-	for i, word := range []string{"Welcome", "to", "the", "Confluent", "Kafka", "Golang", "client"} {
-    messageId := strconv.Itoa(i+1)
-		fmt.Printf("Producer id: %v\n", messageId)
+	for i, word := range msg {
+		messageId := strconv.Itoa(i + 1)
 
-    newComplexType := ComplexType{ID: messageId, Value: word}
-	  value, _ := json.Marshal(newComplexType)
-	  native, _, _ := schema.Codec().NativeFromTextual(value)
+		newComplexType := ComplexType{ID: messageId, Value: word}
+		value, _ := json.Marshal(newComplexType)
+		native, _, _ := schema.Codec().NativeFromTextual(value)
 		fmt.Printf("Producer value: %v\n", native)
-	  valueBytes, _ := schema.Codec().BinaryFromNative(nil, native)
+		valueBytes, _ := schema.Codec().BinaryFromNative(nil, native)
 
-    var recordValue []byte
-	  recordValue = append(recordValue, byte(0))
-	  recordValue = append(recordValue, schemaIDBytes...)
-	  recordValue = append(recordValue, valueBytes...)
+		var recordValue []byte
+		recordValue = append(recordValue, byte(0))
+		recordValue = append(recordValue, schemaIDBytes...)
+		recordValue = append(recordValue, valueBytes...)
 
-    key, _ := uuid.NewUUID()
+		key, _ := uuid.NewUUID()
 
 		p.Produce(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
-      Key:            []byte(key.String()),
+			Key:            []byte(key.String()),
 			Value:          recordValue,
 		}, nil)
+		fmt.Println("Total bytes produced: ", len(recordValue))
+		app.RecordCustomMetric(
+			"producer/"+strconv.Itoa(producerId),
+			float64(len(recordValue)))
+		app.RecordCustomMetric(
+			"total_bytes",
+			float64(len(recordValue)))
+
 	}
 
 	// Wait for message deliveries before shutting down
 	p.Flush(15 * 1000)
-
 }
