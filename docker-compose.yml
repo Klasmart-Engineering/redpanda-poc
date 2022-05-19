@@ -188,3 +188,15 @@ services:
     networks:
       - redpanda_network
 
+  pushgateway:
+    image: prom/pushgateway:latest
+    container_name: pushgateway
+    expose:
+      - 9091
+    ports:
+      - "9091:9091"
+    links:
+      - prometheus:prometheus
+    networks:
+      -  redpanda_network
+
