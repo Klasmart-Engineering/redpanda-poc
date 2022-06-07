@@ -1,5 +1,13 @@
 # Run redpanda cluster
 
+Create all the volumes
+
+```bash
+docker volume create redpanda1 && \
+docker volume create redpanda2 && \
+docker volume create redpanda3
+```
+
 run the cluster
 
 ```bash
@@ -13,7 +21,28 @@ This will allow you to run a simple producer/consumer to make sure everything is
 ### Create a topic
 
 ```bash
-docker-compose exec broker kafka-topics --create --bootstrap-server localhost:9092 --replication-factor 1 --partitions 1 --topic test
+docker exec -it redpanda1 rpk topic create test --brokers=localhost:9092
+```
+
+### Run the producer
+
+```bash
+docker exec -it redpanda1 rpk topic produce test --brokers=localhost:9092
+```
+
+### Run the consumer
+
+```bash
+docker exec -it redpanda1 rpk topic consume test --brokers=localhost:9092
+```
+
+## Run sample producer with schema
+
+### Create topic
+If you haven't created the test topic, create the topic from the previous step
+
+```bash
+docker exec -it redpanda1 rpk topic create test --brokers=localhost:9092
 ```
 
 ### Register the schema
@@ -87,6 +116,12 @@ docker-compose stop
 
 ```bash
 docker-compose rm
+```
+
+```bash
+docker volume rm redpanda1 && \
+docker volume rm redpanda2 && \
+docker volume rm redpanda3
 ```
 
 ## troubleshooting
