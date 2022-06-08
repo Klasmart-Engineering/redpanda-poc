@@ -19,7 +19,7 @@ type ComplexType struct {
 
 func main() {
 
-	p, err := kafka.NewProducer(&kafka.ConfigMap{"bootstrap.servers": "localhost:19092"})
+	p, err := kafka.NewProducer(&kafka.ConfigMap{"bootstrap.servers": "localhost:9092"})
 	if err != nil {
 		panic(err)
 	}
@@ -42,7 +42,7 @@ func main() {
 	// Produce messages to topic (asynchronously)
 	topic := "test"
 
-  schemaRegistryClient := srclient.CreateSchemaRegistryClient("http://localhost:18081")
+  schemaRegistryClient := srclient.CreateSchemaRegistryClient("http://localhost:8081")
 	schema, err := schemaRegistryClient.GetLatestSchema(topic)
   fmt.Printf("Producer schema: %v\n", schema)
 	if schema == nil {

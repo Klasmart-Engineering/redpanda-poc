@@ -11,7 +11,7 @@ import (
 func main() {
 
 	c, err := kafka.NewConsumer(&kafka.ConfigMap{
-    "bootstrap.servers": "localhost:19092,19093,19094",
+    "bootstrap.servers": "localhost:9092",
 		"group.id":          "myGroup",
 		"auto.offset.reset": "earliest",
 	})
@@ -21,7 +21,7 @@ func main() {
 	}
 
 	c.SubscribeTopics([]string{"test", "^aRegex.*[Tt]opic"}, nil)
-  schemaRegistryClient := srclient.CreateSchemaRegistryClient("http://localhost:18081")
+  schemaRegistryClient := srclient.CreateSchemaRegistryClient("http://localhost:8081")
 
 	for {
 		msg, err := c.ReadMessage(-1)
