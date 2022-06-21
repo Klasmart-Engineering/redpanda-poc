@@ -3,13 +3,16 @@ package main
 import (
 	"encoding/binary"
 	"encoding/json"
+	"os"
+
 	"fmt"
 	"io/ioutil"
-	"os"
 	"strconv"
-	"time"
 
-	newrelic "github.com/newrelic/go-agent"
+	"github.com/aws/aws-sdk-go/aws"
+
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/cloudwatch"
 
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/google/uuid"
@@ -31,39 +34,79 @@ func mustGetEnv(key string) string {
 const producerCount = 2
 
 var (
-	app   newrelic.Application
 	topic = "test"
 	msg   = []string{"Welcome", "to", "the", "Confluent", "Kafka", "Golang", "client"}
+	svc   *cloudwatch.CloudWatch
 )
 
-func InitNewRelicApp(name string, licenseKey string) newrelic.Application {
-	cfg := newrelic.NewConfig(name, licenseKey)
-	cfg.Enabled = true
+func createCustomMetric(val []byte, producerId int) {
+	_, err := svc.PutMetricData(&cloudwatch.PutMetricDataInput{
+		Namespace: aws.String("AWS/CustomMetric"),
+		MetricData: []*cloudwatch.MetricDatum{
+			&cloudwatch.MetricDatum{
+				MetricName: aws.String("customMetric"),
+				Unit:       aws.String("Bytes"),
+				Value:      aws.Float64(float64(len(val))),
+				Dimensions: []*cloudwatch.Dimension{
+					&cloudwatch.Dimension{
+						Name:  aws.String("producer"),
+						Value: aws.String(strconv.Itoa(producerId)),
+					},
+				},
+			},
+		},
+	})
 
-	app, err := newrelic.NewApplication(cfg)
-
-	if nil != err {
-		panic(err)
+	if err != nil {
+		fmt.Println("Error adding metrics:", err.Error())
+		return
 	}
-	return app
+}
+
+func listMetrics() {
+	result, err := svc.ListMetrics(&cloudwatch.ListMetricsInput{
+		Namespace: aws.String("custom.metric"),
+	})
+
+	if err != nil {
+		fmt.Println("Error getting metrics:", err.Error())
+		return
+	}
+
+	for _, metric := range result.Metrics {
+		fmt.Println(*metric.MetricName)
+
+		for _, dim := range metric.Dimensions {
+			fmt.Println(*dim.Name+":", *dim.Value)
+			fmt.Println()
+		}
+	}
 }
 
 func init() {
-	app = InitNewRelicApp("redpanda-poc", mustGetEnv("NEW_RELIC_LICENSE_KEY"))
-	if err := app.WaitForConnection(5 * time.Second); nil != err {
-		panic(err)
-	}
+
+	localstackURL := mustGetEnv("LOCALSTACK_URL")
+
+	sess := session.Must(session.NewSessionWithOptions(session.Options{
+		SharedConfigState: session.SharedConfigEnable,
+	}))
+	sess.Config.Endpoint = &localstackURL
+
+	svc = cloudwatch.New(sess)
 }
 
 func main() {
+	i := 0
 
 	for producerId := 0; producerId < producerCount; producerId++ {
-		produce(producerId)
+
+		produce(msg[i:i+1], producerId)
+		i = i + 1
 	}
-	app.Shutdown(10 * time.Second)
+
 }
 
-func produce(producerId int) {
+func produce(msg []string, producerId int) {
 
 	p, err := kafka.NewProducer(&kafka.ConfigMap{"bootstrap.servers": "localhost:19092"})
 	if err != nil {
@@ -103,10 +146,28 @@ func produce(producerId int) {
 		messageId := strconv.Itoa(i + 1)
 
 		newComplexType := ComplexType{ID: messageId, Value: word}
-		value, _ := json.Marshal(newComplexType)
-		native, _, _ := schema.Codec().NativeFromTextual(value)
+		value, err := json.Marshal(newComplexType)
+		native, _, err := schema.Codec().NativeFromTextual(value)
 		fmt.Printf("Producer value: %v\n", native)
-		valueBytes, _ := schema.Codec().BinaryFromNative(nil, native)
+		valueBytes, err := schema.Codec().BinaryFromNative(nil, native)
+
+		if err != nil {
+			_, err = svc.PutMetricData(&cloudwatch.PutMetricDataInput{
+				Namespace: aws.String("AWS/CustomMetric"),
+				MetricData: []*cloudwatch.MetricDatum{
+					&cloudwatch.MetricDatum{
+						MetricName: aws.String("FailedMessages"),
+						Unit:       aws.String("Count"),
+						Value:      aws.Float64(1),
+					},
+				},
+			})
+
+			if err != nil {
+				fmt.Println("Error adding metrics:", err.Error())
+				return
+			}
+		}
 
 		var recordValue []byte
 		recordValue = append(recordValue, byte(0))
@@ -121,15 +182,31 @@ func produce(producerId int) {
 			Value:          recordValue,
 		}, nil)
 		fmt.Println("Total bytes produced: ", len(recordValue))
-		app.RecordCustomMetric(
-			"producer/"+strconv.Itoa(producerId),
-			float64(len(recordValue)))
-		app.RecordCustomMetric(
-			"total_bytes",
-			float64(len(recordValue)))
 
+		_, err = svc.PutMetricData(&cloudwatch.PutMetricDataInput{
+			Namespace: aws.String("AWS/CustomMetric"),
+			MetricData: []*cloudwatch.MetricDatum{
+				&cloudwatch.MetricDatum{
+					MetricName: aws.String("customMetric"),
+					Unit:       aws.String("Bytes"),
+					Value:      aws.Float64(float64(len(recordValue))),
+					Dimensions: []*cloudwatch.Dimension{
+						&cloudwatch.Dimension{
+							Name:  aws.String("producer"),
+							Value: aws.String(strconv.Itoa(producerId)),
+						},
+					},
+				},
+			},
+		})
+
+		if err != nil {
+			fmt.Println("Error adding metrics:", err.Error())
+			return
+		}
 	}
 
 	// Wait for message deliveries before shutting down
 	p.Flush(15 * 1000)
+
 }
